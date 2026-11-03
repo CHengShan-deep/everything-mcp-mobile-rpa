@@ -73,6 +73,15 @@ jobs:
           ARCH: ${{ matrix.arch }}
         run: ./scripts/build-bootstrap.sh
 
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.arch }}-${{ github.run_id }}
+          path: work/build-${{ matrix.arch }}.log
+          if-no-files-found: warn
+          retention-days: 30
+
       - name: Upload archive
         if: inputs.arches == '' || contains(inputs.arches, matrix.arch)
         uses: actions/upload-artifact@v4

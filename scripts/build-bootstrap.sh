@@ -54,8 +54,20 @@ cd "$TP"
 grep -n 'TERMUX_APP__PACKAGE_NAME=' scripts/properties.sh | head -2
 
 export CI=true
+
+LOG="$WORK/build-$ARCH.log"
+set +e
 ./scripts/run-docker.sh ./scripts/build-bootstraps.sh \
   --architectures "$ARCH" \
-  --add "$EXTRA_PACKAGES"
+  --add "$EXTRA_PACKAGES" 2>&1 | tee "$LOG"
+rc=${PIPESTATUS[0]}
+set -e
+
+if [ "$rc" -ne 0 ]; then
+  echo "::error::build-bootstraps.sh exited with $rc for $ARCH"
+  echo "----- last 200 lines of $LOG -----"
+  tail -n 200 "$LOG"
+  exit "$rc"
+fi
 
 ls -l "$TP"/bootstrap-*.zip
