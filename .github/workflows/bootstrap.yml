@@ -1,0 +1,84 @@
+name: bootstrap
+
+# Builds Termux bootstrap archives from source for an application id of our own
+# (the published archives carry the com.termux prefix compiled into every ELF,
+# so they cannot be reused).
+
+on:
+  workflow_dispatch:
+    inputs:
+      arches:
+        description: "Comma-separated architectures"
+        default: "aarch64,x86_64"
+        required: true
+      package_name:
+        description: "Android application id owning the prefix"
+        default: "com.ynk.virtualdisplay.runtime"
+        required: true
+      termux_ref:
+        description: "termux-packages git ref"
+        default: "master"
+        required: true
+      extra_packages:
+        description: "Packages added to the default bootstrap set"
+        default: "python"
+        required: true
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/bootstrap.yml"
+      - "scripts/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ARCHES: ${{ inputs.arches || 'aarch64,x86_64' }}
+  PACKAGE_NAME: ${{ inputs.package_name || 'com.ynk.virtualdisplay.runtime' }}
+  TERMUX_REF: ${{ inputs.termux_ref || 'master' }}
+  EXTRA_PACKAGES: ${{ inputs.extra_packages || 'python' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(format('["{0}"]', replace(env.ARCHES, ',', '","'))) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL 2>/dev/null || true
+          df -h /
+
+      - name: Show effective configuration
+        run: |
+          echo "arch=${{ matrix.arch }}"
+          echo "package_name=$PACKAGE_NAME"
+          echo "termux_ref=$TERMUX_REF"
+          echo "extra_packages=$EXTRA_PACKAGES"
+          docker version --format '{{.Server.Version}}'
+          ls -l /dev/fuse 2>/dev/null || echo "no /dev/fuse"
+
+      - name: Build bootstrap
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: ./scripts/build-bootstrap.sh
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-${{ matrix.arch }}-${{ github.run_id }}
+          path: |
+            work/termux-packages/bootstrap-*.zip
+            work/termux-packages.commit
+          if-no-files-found: error
+          retention-days: 90
