@@ -53,6 +53,27 @@ PY
 cd "$TP"
 grep -n 'TERMUX_APP__PACKAGE_NAME=' scripts/properties.sh | head -2
 
+# Two upstream source hosts reset or time out from CI runners while everything
+# else downloads fine. Rewrite them to equivalent mirrors serving identical
+# bytes, so the pinned checksums still match.
+python3 - "$TP/scripts/build/termux_download.sh" <<'PY'
+import sys
+
+path = sys.argv[1]
+src = open(path, encoding="utf-8").read()
+anchor = '\tlocal URL="$1"\n'
+if src.count(anchor) != 1:
+    sys.exit(f"expected exactly one {anchor!r} in {path}, found {src.count(anchor)}")
+rewrite = '''\tlocal URL="$1"
+\tcase "$URL" in
+\t\thttp://download.savannah.gnu.org/*) URL="https://download.savannah.gnu.org/${URL#http://download.savannah.gnu.org/}" ;;
+\t\thttps://mirrors.kernel.org/gnu/*) URL="https://ftp.gnu.org/gnu/${URL#https://mirrors.kernel.org/gnu/}" ;;
+\tesac
+'''
+open(path, "w", encoding="utf-8").write(src.replace(anchor, rewrite))
+print(f"patched {path}: added mirror rewrites")
+PY
+
 export CI=true
 
 LOG="$WORK/build-$ARCH.log"
