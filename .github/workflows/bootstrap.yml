@@ -37,7 +37,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  ARCHES: ${{ inputs.arches || 'aarch64,x86_64' }}
   PACKAGE_NAME: ${{ inputs.package_name || 'com.ynk.virtualdisplay.runtime' }}
   TERMUX_REF: ${{ inputs.termux_ref || 'master' }}
   EXTRA_PACKAGES: ${{ inputs.extra_packages || 'python' }}
@@ -49,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ${{ fromJSON(format('["{0}"]', replace(env.ARCHES, ',', '","'))) }}
+        arch: ${{ fromJSON(format('["{0}"]', replace(inputs.arches || 'aarch64,x86_64', ',', '","'))) }}
     steps:
       - uses: actions/checkout@v4
 
