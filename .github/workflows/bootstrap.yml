@@ -48,7 +48,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ${{ fromJSON(format('["{0}"]', replace(inputs.arches || 'aarch64,x86_64', ',', '","'))) }}
+        arch: [aarch64, x86_64]
     steps:
       - uses: actions/checkout@v4
 
@@ -68,11 +68,13 @@ jobs:
           ls -l /dev/fuse 2>/dev/null || echo "no /dev/fuse"
 
       - name: Build bootstrap
+        if: inputs.arches == '' || contains(inputs.arches, matrix.arch)
         env:
           ARCH: ${{ matrix.arch }}
         run: ./scripts/build-bootstrap.sh
 
       - name: Upload archive
+        if: inputs.arches == '' || contains(inputs.arches, matrix.arch)
         uses: actions/upload-artifact@v4
         with:
           name: bootstrap-${{ matrix.arch }}-${{ github.run_id }}
