@@ -39,11 +39,9 @@ Artifacts are named `bootstrap-<arch>-<run_id>` and contain
 ## Local reproduction
 
 Requires Docker (the official `ghcr.io/termux/package-builder` image carries the
-toolchain and an NDK).
+toolchain and an NDK). The image is run directly rather than through
+`scripts/run-docker.sh`, whose AppArmor profile denies writes to the bind mount.
 
 ```sh
 ARCH=aarch64 ./scripts/build-bootstrap.sh
 ```
-
-The container's `builder` user is uid 1001; on a host whose user is not 1001 or
-root, `run-docker.sh` re-homes the mount automatically.

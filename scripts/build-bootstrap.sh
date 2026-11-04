@@ -91,9 +91,17 @@ PY
 
 export CI=true
 
+# run-docker.sh loads a restrictive AppArmor profile that denies creating files
+# in the bind mount, even though the builder uid matches the runner uid. Run the
+# image directly instead; the image's builder user is uid 1001, same as on CI.
 LOG="$WORK/build-$ARCH.log"
 set +e
-./scripts/run-docker.sh ./scripts/build-bootstraps.sh \
+docker run --rm --init \
+  --volume "$TP:/home/builder/termux-packages" \
+  --workdir /home/builder/termux-packages \
+  --env CI=true \
+  ghcr.io/termux/package-builder \
+  ./scripts/build-bootstraps.sh \
   --architectures "$ARCH" \
   --add "$EXTRA_PACKAGES" 2>&1 | tee "$LOG"
 rc=${PIPESTATUS[0]}
