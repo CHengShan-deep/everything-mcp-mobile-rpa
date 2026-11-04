@@ -32,7 +32,7 @@ Workflow inputs:
 | --- | --- | --- |
 | `arches` | `aarch64,x86_64` | comma-separated target architectures |
 | `package_name` | `com.ynk.virtualdisplay.runtime` | application id owning the prefix |
-| `termux_ref` | `master` | termux-packages git ref (pin a commit for reproducible builds) |
+| `termux_ref` | pinned commit | termux-packages commit to build from; pinning keeps both the build reproducible and the CI cache usable |
 | `extra_packages` | `python` | packages added on top of the default bootstrap set |
 
 Artifacts are named `bootstrap-<arch>-<run_id>` and contain

@@ -16,8 +16,8 @@ on:
         default: "com.ynk.virtualdisplay.runtime"
         required: true
       termux_ref:
-        description: "termux-packages git ref"
-        default: "master"
+        description: "termux-packages commit (pin it; master churns the cache)"
+        default: "5725defbf737b1cbddc67410c4cb2b8b0dcec0af"
         required: true
       extra_packages:
         description: "Packages added to the default bootstrap set"
@@ -38,7 +38,7 @@ concurrency:
 
 env:
   PACKAGE_NAME: ${{ inputs.package_name || 'com.ynk.virtualdisplay.runtime' }}
-  TERMUX_REF: ${{ inputs.termux_ref || 'master' }}
+  TERMUX_REF: ${{ inputs.termux_ref || '5725defbf737b1cbddc67410c4cb2b8b0dcec0af' }}
   EXTRA_PACKAGES: ${{ inputs.extra_packages || 'python' }}
 
 jobs:

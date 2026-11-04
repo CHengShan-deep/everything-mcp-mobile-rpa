@@ -8,7 +8,9 @@
 # Optional env:
 #   PACKAGE_NAME    Android application id that will own the prefix
 #                   (default: com.ynk.virtualdisplay.runtime)
-#   TERMUX_REF      termux-packages git ref (default: master)
+#   TERMUX_REF      termux-packages commit to build from (default: the pinned
+#                   commit below). Branch names work too, but every master
+#                   movement invalidates the CI build cache.
 #   EXTRA_PACKAGES  comma-separated packages added on top of the default
 #                   bootstrap set (default: python)
 #
@@ -25,7 +27,9 @@ set -euo pipefail
 
 : "${ARCH:?ARCH is required (aarch64|x86_64)}"
 PACKAGE_NAME="${PACKAGE_NAME:-com.ynk.virtualdisplay.runtime}"
-TERMUX_REF="${TERMUX_REF:-master}"
+# Pinned so that CI caches survive a moving master and so that a rebuild produces
+# the same packages twice.
+TERMUX_REF="${TERMUX_REF:-5725defbf737b1cbddc67410c4cb2b8b0dcec0af}"
 EXTRA_PACKAGES="${EXTRA_PACKAGES:-python}"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,8 +45,13 @@ prepare_source() {
 	mkdir -p "$WORK"
 
 	if [ ! -d "$TP/.git" ]; then
-		git clone --depth 1 --branch "$TERMUX_REF" \
-			https://github.com/termux/termux-packages.git "$TP"
+		mkdir -p "$TP"
+		git -C "$TP" init -q
+		git -C "$TP" remote add origin https://github.com/termux/termux-packages.git
+		# Fetching the ref rather than cloning a branch lets a pinned commit stay
+		# pinned without pulling history.
+		git -C "$TP" fetch -q --depth 1 origin "$TERMUX_REF"
+		git -C "$TP" checkout -q FETCH_HEAD
 	fi
 
 	git -C "$TP" rev-parse HEAD | tee "$WORK/termux-packages.commit"
