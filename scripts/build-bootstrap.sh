@@ -78,6 +78,28 @@ open(path, "w", encoding="utf-8").write(src.replace(old, new))
 print(f"patched {path}: bzip2 -> libbz2")
 PY
 
+	# apt drags in dpkg, gnupg, tor, unbound, perl and their docs, none of which a
+	# Python runtime needs; the product ships a fixed interpreter, not a package
+	# manager.
+	python3 - "$TP/scripts/build-bootstraps.sh" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+lines = open(path, encoding="utf-8").read().split("\n")
+drop = {"apt", "command-not-found", "termux-keyring"}
+removed = []
+for i, line in enumerate(lines):
+    m = re.fullmatch(r'([ \t]*)PACKAGES\+=\("([^"]+)"\)', line)
+    if m and m.group(2) in drop:
+        lines[i] = m.group(1) + ":"
+        removed.append(m.group(2))
+if set(removed) != drop:
+    sys.exit(f"expected to remove {sorted(drop)}, removed {sorted(removed)}")
+open(path, "w", encoding="utf-8").write("\n".join(lines))
+print(f"patched {path}: dropped {', '.join(sorted(removed))} from the bootstrap set")
+PY
+
 	# Two upstream source hosts reset or time out from CI runners while everything
 	# else downloads fine. Rewrite them to equivalent mirrors serving identical
 	# bytes, so the pinned checksums still match.
@@ -141,6 +163,8 @@ build() {
 		tail -n 200 "$LOG"
 		exit 1
 	fi
+
+	"$ROOT/scripts/prune-bootstrap.sh" "$TP/bootstrap-$ARCH.zip"
 
 	ls -l "$TP/bootstrap-$ARCH.zip"
 }
