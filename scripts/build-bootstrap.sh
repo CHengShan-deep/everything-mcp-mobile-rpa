@@ -53,6 +53,21 @@ PY
 cd "$TP"
 grep -n 'TERMUX_APP__PACKAGE_NAME=' scripts/properties.sh | head -2
 
+# The bootstrap package list still names bzip2, which was renamed to libbz2 in
+# master. The official CI builds bootstraps from published debs instead of this
+# script, so the list is not kept in sync.
+python3 - "$TP/scripts/build-bootstraps.sh" <<'PY'
+import sys
+
+path = sys.argv[1]
+src = open(path, encoding="utf-8").read()
+old, new = 'PACKAGES+=("bzip2")', 'PACKAGES+=("libbz2")'
+if src.count(old) != 1:
+    sys.exit(f"expected exactly one {old!r} in {path}, found {src.count(old)}")
+open(path, "w", encoding="utf-8").write(src.replace(old, new))
+print(f"patched {path}: bzip2 -> libbz2")
+PY
+
 # Two upstream source hosts reset or time out from CI runners while everything
 # else downloads fine. Rewrite them to equivalent mirrors serving identical
 # bytes, so the pinned checksums still match.
