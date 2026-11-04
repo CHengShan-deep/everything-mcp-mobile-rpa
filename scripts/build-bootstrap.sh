@@ -92,13 +92,19 @@ PY
 export CI=true
 
 # run-docker.sh loads a restrictive AppArmor profile that denies creating files
-# in the bind mount, even though the builder uid matches the runner uid. Run the
-# image directly instead; the image's builder user is uid 1001, same as on CI.
+# in the bind mount, even though the builder uid matches the runner uid, so the
+# image is run directly. It still needs the fuse device and mount capability
+# that run-docker.sh otherwise supplies: the build assembles the fake prefix
+# with fuse-overlayfs.
 LOG="$WORK/build-$ARCH.log"
 set +e
 docker run --rm --init \
   --volume "$TP:/home/builder/termux-packages" \
   --workdir /home/builder/termux-packages \
+  --device /dev/fuse \
+  --cap-add SYS_ADMIN \
+  --security-opt seccomp=unconfined \
+  --security-opt apparmor=unconfined \
   --env CI=true \
   ghcr.io/termux/package-builder \
   ./scripts/build-bootstraps.sh \
