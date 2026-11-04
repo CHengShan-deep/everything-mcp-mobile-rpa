@@ -67,6 +67,24 @@ jobs:
           docker version --format '{{.Server.Version}}'
           ls -l /dev/fuse 2>/dev/null || echo "no /dev/fuse"
 
+      - name: Prepare source tree
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: ./scripts/build-bootstrap.sh --prepare-only
+
+      # Only the built debs and their "already built" markers are cached, not the
+      # build trees: they are a couple of hundred MB instead of several GB, and
+      # build-package.sh skips every package whose marker is present. The key
+      # carries the resolved termux-packages commit, so a moved master rebuilds
+      # from scratch rather than reusing packages built from older sources.
+      - name: Restore build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            work/termux-packages/output
+            work/home/.built-packages
+          key: termux-${{ matrix.arch }}-${{ env.PACKAGE_NAME }}-${{ hashFiles('work/termux-packages.commit') }}
+
       - name: Build bootstrap
         if: inputs.arches == '' || contains(inputs.arches, matrix.arch)
         env:

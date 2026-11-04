@@ -21,8 +21,10 @@ does **not** pull in proot.
 ## Running
 
 Push to `main`, or trigger the `bootstrap` workflow manually. One job per
-architecture runs in parallel; each takes roughly 40-90 minutes on a standard
-runner.
+architecture runs in parallel; a cold build takes roughly 40-90 minutes on a
+standard runner. Built debs and their "already built" markers are cached under a
+key that includes the resolved termux-packages commit, so a run against an
+unchanged upstream only re-assembles the archive.
 
 Workflow inputs:
 
