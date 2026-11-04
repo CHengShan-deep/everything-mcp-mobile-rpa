@@ -1,0 +1,44 @@
+name: probe
+
+# One-off diagnosis: can the builder container write into the bind mount?
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone termux-packages
+        run: |
+          mkdir -p work
+          git clone --depth 1 --branch master \
+            https://github.com/termux/termux-packages.git work/termux-packages
+
+      - name: Report host side
+        run: |
+          id
+          ls -ld work/termux-packages
+          stat -c '%u:%g %a %n' work/termux-packages
+
+      - name: Start builder container
+        run: ./scripts/run-docker.sh true
+        working-directory: work/termux-packages
+
+      - name: Containers
+        run: docker ps --format '{{.ID}} {{.Image}} {{.Names}}'
+
+      - name: Report container side
+        run: |
+          cid=$(docker ps --format '{{.ID}} {{.Image}}' | grep package-builder | awk '{print $1}' | head -1)
+          echo "cid=$cid"
+          docker exec "$cid" sh -c 'id; ls -ld /home/builder/termux-packages; stat -c "%u:%g %a %n" /home/builder/termux-packages'
+          docker exec "$cid" sh -c 'touch /home/builder/termux-packages/.probe && echo WRITE_OK || echo WRITE_FAIL'
+          docker exec "$cid" sh -c 'mkdir -p /home/builder/termux-packages/output && echo MKDIR_OK || echo MKDIR_FAIL'
+          docker exec "$cid" sh -c 'cat /proc/self/attr/current 2>/dev/null || echo no-apparmor-label'
