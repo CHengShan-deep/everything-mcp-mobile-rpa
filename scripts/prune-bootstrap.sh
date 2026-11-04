@@ -32,7 +32,6 @@ DROP_PATHS=(
 for p in "${DROP_PATHS[@]}"; do
 	rm -rf "$p"
 done
-
 python3 - SYMLINKS.txt <<'PY'
 import os
 import sys
@@ -56,5 +55,8 @@ PY
 after=$(du -sm . | cut -f1)
 echo "pruned $((before - after)) MB ($before MB -> $after MB uncompressed)"
 
-zip -q -r9 "$ZIP" ./*
+# zip updates an existing archive in place and keeps entries whose files are
+# gone, so the pruned tree has to be written to a fresh archive.
+zip -q -r9 "$TMP/bootstrap.zip" ./*
+mv -f "$TMP/bootstrap.zip" "$ZIP"
 ls -l "$ZIP"
