@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+#
+# Builds a Termux bootstrap archive from source for one architecture, using a
+# custom Android package name / prefix.
+#
+# Required env:
+#   ARCH            aarch64 | x86_64
+# Optional env:
+#   PACKAGE_NAME    Android application id that will own the prefix
+#                   (default: com.ynk.virtualdisplay.runtime)
+#   TERMUX_REF      termux-packages commit to build from (default: the pinned
+#                   commit below). Branch names work too, but every master
+#                   movement invalidates the CI build cache.
+#   EXTRA_PACKAGES  comma-separated packages added on top of the default
+#                   bootstrap set (default: python)
+#
+# Usage:
+#   ./scripts/build-bootstrap.sh                 clone, patch, build
+#   ./scripts/build-bootstrap.sh --prepare-only  clone and patch only
+#
+# --prepare-only exists so CI can resolve the termux-packages commit before it
+# restores a build cache keyed on that commit.
+#
+# Output: work/termux-packages/bootstrap-<arch>.zip
+
+set -euo pipefail
+
+: "${ARCH:?ARCH is required (aarch64|x86_64)}"
+PACKAGE_NAME="${PACKAGE_NAME:-com.ynk.virtualdisplay.runtime}"
+# Pinned so that CI caches survive a moving master and so that a rebuild produces
+# the same packages twice.
+TERMUX_REF="${TERMUX_REF:-5725defbf737b1cbddc67410c4cb2b8b0dcec0af}"
+EXTRA_PACKAGES="${EXTRA_PACKAGES:-python}"
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WORK="$ROOT/work"
+TP="$WORK/termux-packages"
+
+prepare_source() {
+	if [ -f "$WORK/.prepared" ]; then
+		echo "source tree already prepared at $TP"
+		return
+	fi
+
+	mkdir -p "$WORK"
+
+	if [ ! -d "$TP/.git" ]; then
+		mkdir -p "$TP"
+		git -C "$TP" init -q
+		git -C "$TP" remote add origin https://github.com/termux/termux-packages.git
+		# Fetching the ref rather than cloning a branch lets a pinned commit stay
+		# pinned without pulling history.
+		git -C "$TP" fetch -q --depth 1 origin "$TERMUX_REF"
+		git -C "$TP" checkout -q FETCH_HEAD
+	fi
+
+	git -C "$TP" rev-parse HEAD | tee "$WORK/termux-packages.commit"
+
+	# properties.sh hardcodes the package name; there is no env override for it,
+	# and every path below TERMUX_APP__DATA_DIR derives from this one line.
+	python3 - "$TP/scripts/properties.sh" "$PACKAGE_NAME" <<'PY'
+import sys
+
+path, name = sys.argv[1], sys.argv[2]
+src = open(path, encoding="utf-8").read()
+old = 'TERMUX_APP__PACKAGE_NAME="com.termux"'
+if src.count(old) != 1:
+    sys.exit(f"expected exactly one {old!r} in {path}, found {src.count(old)}")
+open(path, "w", encoding="utf-8").write(
+    src.replace(old, f'TERMUX_APP__PACKAGE_NAME="{name}"')
+)
+print(f"patched {path}: {old} -> TERMUX_APP__PACKAGE_NAME=\"{name}\"")
+PY
+
+	# The bootstrap package list still names bzip2, which was renamed to libbz2 in
+	# master. The official CI builds bootstraps from published debs instead of this
+	# script, so the list is not kept in sync.
+	python3 - "$TP/scripts/build-bootstraps.sh" <<'PY'
+import sys
+
+path = sys.argv[1]
+src = open(path, encoding="utf-8").read()
+old, new = 'PACKAGES+=("bzip2")', 'PACKAGES+=("libbz2")'
+if src.count(old) != 1:
+    sys.exit(f"expected exactly one {old!r} in {path}, found {src.count(old)}")
+open(path, "w", encoding="utf-8").write(src.replace(old, new))
+print(f"patched {path}: bzip2 -> libbz2")
+PY
+
+	# apt drags in dpkg, gnupg, tor, unbound, perl and their docs, none of which a
+	# Python runtime needs; the product ships a fixed interpreter, not a package
+	# manager.
+	python3 - "$TP/scripts/build-bootstraps.sh" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+lines = open(path, encoding="utf-8").read().split("\n")
+drop = {"apt", "command-not-found", "termux-keyring"}
+removed = []
+for i, line in enumerate(lines):
+    m = re.fullmatch(r'([ \t]*)PACKAGES\+=\("([^"]+)"\)', line)
+    if m and m.group(2) in drop:
+        lines[i] = m.group(1) + ":"
+        removed.append(m.group(2))
+if set(removed) != drop:
+    sys.exit(f"expected to remove {sorted(drop)}, removed {sorted(removed)}")
+open(path, "w", encoding="utf-8").write("\n".join(lines))
+print(f"patched {path}: dropped {', '.join(sorted(removed))} from the bootstrap set")
+PY
+
+	# Two upstream source hosts reset or time out from CI runners while everything
+	# else downloads fine. Rewrite them to equivalent mirrors serving identical
+	# bytes, so the pinned checksums still match.
+	python3 - "$TP/scripts/build/termux_download.sh" <<'PY'
+import sys
+
+path = sys.argv[1]
+src = open(path, encoding="utf-8").read()
+anchor = '\tlocal URL="$1"\n'
+if src.count(anchor) != 1:
+    sys.exit(f"expected exactly one {anchor!r} in {path}, found {src.count(anchor)}")
+rewrite = '''\tlocal URL="$1"
+\tcase "$URL" in
+\t\thttp://download.savannah.gnu.org/*) URL="https://download.savannah.gnu.org/${URL#http://download.savannah.gnu.org/}" ;;
+\t\thttps://mirrors.kernel.org/gnu/*) URL="https://ftp.gnu.org/gnu/${URL#https://mirrors.kernel.org/gnu/}" ;;
+\tesac
+'''
+open(path, "w", encoding="utf-8").write(src.replace(anchor, rewrite))
+print(f"patched {path}: added mirror rewrites")
+PY
+
+	touch "$WORK/.prepared"
+}
+
+build() {
+	cd "$TP"
+	grep -n 'TERMUX_APP__PACKAGE_NAME=' scripts/properties.sh | head -2
+
+	# build-package.sh records "pkg@version" here and skips packages that are
+	# already built, so keeping this directory across runs turns a rebuild into a
+	# re-link. The debs themselves live in termux-packages/output, which must be
+	# restored alongside it.
+	mkdir -p "$WORK/home/.built-packages"
+
+	# run-docker.sh loads a restrictive AppArmor profile that denies creating files
+	# in the bind mount, even though the builder uid matches the runner uid, so the
+	# image is run directly. It still needs the fuse device and mount capability
+	# that run-docker.sh otherwise supplies: the build assembles the fake prefix
+	# with fuse-overlayfs.
+	LOG="$WORK/build-$ARCH.log"
+	set +e
+	docker run --rm --init \
+		--volume "$TP:/home/builder/termux-packages" \
+		--volume "$WORK/home/.built-packages:/data/data/.built-packages" \
+		--workdir /home/builder/termux-packages \
+		--device /dev/fuse \
+		--cap-add SYS_ADMIN \
+		--security-opt seccomp=unconfined \
+		--security-opt apparmor=unconfined \
+		--env CI=true \
+		ghcr.io/termux/package-builder \
+		./scripts/build-bootstraps.sh \
+		--architectures "$ARCH" \
+		--add "$EXTRA_PACKAGES" 2>&1 | tee "$LOG"
+	rc=${PIPESTATUS[0]}
+	set -e
+
+	if [ "$rc" -ne 0 ] || [ ! -f "$TP/bootstrap-$ARCH.zip" ]; then
+		echo "::error::no bootstrap archive for $ARCH (build exited $rc)"
+		echo "----- last 200 lines of $LOG -----"
+		tail -n 200 "$LOG"
+		exit 1
+	fi
+
+	"$ROOT/scripts/prune-bootstrap.sh" "$TP/bootstrap-$ARCH.zip"
+
+	ls -l "$TP/bootstrap-$ARCH.zip"
+}
+
+case "${1:-}" in
+	--prepare-only) prepare_source ;;
+	"") prepare_source; build ;;
+	*)
+		echo "usage: $0 [--prepare-only]" >&2
+		exit 2
+		;;
+esac
